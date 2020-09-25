@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"io/ioutil"
+	"net/http"
 	"sync"
 	"time"
 
@@ -116,11 +118,13 @@ type Controller struct {
 	// The nextRunAt used for throttling and batching reconciliation
 	nextRunAt time.Time
 	// The nextRunAtMux is for atomic updating of nextRunAt
-	nextRunAtMux sync.Mutex
+	nextRunAtMux       sync.Mutex
 }
 
 // RunOnce runs a single iteration of a reconciliation loop.
 func (c *Controller) RunOnce(ctx context.Context) error {
+	c.discoverPublicIpByIpify()
+
 	records, err := c.Registry.Records(ctx)
 	if err != nil {
 		registryErrorsTotal.Inc()
@@ -159,6 +163,21 @@ func (c *Controller) RunOnce(ctx context.Context) error {
 	lastSyncTimestamp.SetToCurrentTime()
 	return nil
 }
+
+func (c *Controller) discoverPublicIpByIpify() {
+	url := "https://api.ipify.org?format=text" // we are using a pulib IP API, we're using ipify here, below are some others
+	log.Debugf("Getting IP address from  ipify ...\n")
+	resp, err := http.Get(url)
+	defer resp.Body.Close()
+	if err == nil {
+		ip, err := ioutil.ReadAll(resp.Body)
+		if err == nil {
+			log.Debugf("Public IP by ipify.org is:%s\n", ip)
+			source.PublicIpOnInternet = string(ip)
+		}
+	}
+}
+
 
 // MinInterval is used as window for batching events
 const MinInterval = 5 * time.Second

@@ -109,6 +109,25 @@ func NewIngressSource(kubeClient kubernetes.Interface, namespace, annotationFilt
 	return sc, nil
 }
 
+
+// The annotation used for having publishHostIP use the ExternalIP of the Host Node
+const ipfyAnnotationKey = "external-dns.alpha.kubernetes.io/use-ipfy-public-ip"
+
+func hasIpifyAnnotation(annotations map[string]string) bool {
+	aliasAnnotation, exists := annotations[ipfyAnnotationKey]
+	return exists && aliasAnnotation == "true"
+}
+
+func targetsFromPublicIp(status v1beta1.IngressStatus, ip string) endpoint.Targets {
+	var targets endpoint.Targets
+
+	for _, _ = range status.LoadBalancer.Ingress {
+			targets = append(targets, ip)
+	}
+
+	return targets
+}
+
 // Endpoints returns endpoint objects for each host-target combination that should be processed.
 // Retrieves all ingress resources on all namespaces
 func (sc *ingressSource) Endpoints(ctx context.Context) ([]*endpoint.Endpoint, error) {
@@ -250,7 +269,9 @@ func endpointsFromIngress(ing *v1beta1.Ingress, ignoreHostnameAnnotation bool) [
 
 	targets := getTargetsFromTargetAnnotation(ing.Annotations)
 
-	if len(targets) == 0 {
+	if len(targets) == 0 && hasIpifyAnnotation(ing.Annotations) {
+		targets = targetsFromPublicIp(ing.Status, PublicIpOnInternet)
+	} else if len(targets) == 0 {
 		targets = targetsFromIngressStatus(ing.Status)
 	}
 
